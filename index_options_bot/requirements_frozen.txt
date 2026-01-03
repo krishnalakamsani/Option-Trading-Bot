@@ -1,0 +1,5 @@
+dhanhq==2.0.2
+numpy==2.4.0
+pandas==2.3.3
+python-dotenv==1.2.1
+pytz==2025.2
