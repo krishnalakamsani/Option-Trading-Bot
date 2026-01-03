@@ -1,6 +1,5 @@
 import pandas as pd
 import numpy as np
-import pandas_ta as ta
 import logging
 from datetime import datetime, timedelta
 from config.settings import config
@@ -42,36 +41,57 @@ class SuperTrendStrategy:
             # Convert to DataFrame
             df = pd.DataFrame(self.price_data)
             
-            # Calculate SuperTrend using pandas_ta
-            supertrend = ta.supertrend(
-                high=df['high'],
-                low=df['low'],
-                close=df['close'],
-                length=self.period,
-                multiplier=self.multiplier
-            )
+            # Calculate True Range (TR)
+            df['h-l'] = df['high'] - df['low']
+            df['h-pc'] = abs(df['high'] - df['close'].shift(1))
+            df['l-pc'] = abs(df['low'] - df['close'].shift(1))
+            df['tr'] = df[['h-l', 'h-pc', 'l-pc']].max(axis=1)
+            
+            # Calculate ATR (Average True Range)
+            df['atr'] = df['tr'].rolling(window=self.period).mean()
+            
+            # Calculate basic bands
+            df['basic_ub'] = (df['high'] + df['low']) / 2 + (self.multiplier * df['atr'])
+            df['basic_lb'] = (df['high'] + df['low']) / 2 - (self.multiplier * df['atr'])
+            
+            # Calculate final bands
+            df['final_ub'] = 0.0
+            df['final_lb'] = 0.0
+            
+            for i in range(self.period, len(df)):
+                # Upper Band
+                if df['basic_ub'].iloc[i] < df['final_ub'].iloc[i-1] or df['close'].iloc[i-1] > df['final_ub'].iloc[i-1]:
+                    df.loc[df.index[i], 'final_ub'] = df['basic_ub'].iloc[i]
+                else:
+                    df.loc[df.index[i], 'final_ub'] = df['final_ub'].iloc[i-1]
+                
+                # Lower Band
+                if df['basic_lb'].iloc[i] > df['final_lb'].iloc[i-1] or df['close'].iloc[i-1] < df['final_lb'].iloc[i-1]:
+                    df.loc[df.index[i], 'final_lb'] = df['basic_lb'].iloc[i]
+                else:
+                    df.loc[df.index[i], 'final_lb'] = df['final_lb'].iloc[i-1]
+            
+            # Calculate SuperTrend
+            df['supertrend'] = 0.0
+            df['direction'] = 0
+            
+            for i in range(self.period, len(df)):
+                if df['close'].iloc[i] <= df['final_ub'].iloc[i]:
+                    df.loc[df.index[i], 'supertrend'] = df['final_ub'].iloc[i]
+                    df.loc[df.index[i], 'direction'] = -1  # Downtrend
+                else:
+                    df.loc[df.index[i], 'supertrend'] = df['final_lb'].iloc[i]
+                    df.loc[df.index[i], 'direction'] = 1  # Uptrend
             
             # Get the latest values
-            df = pd.concat([df, supertrend], axis=1)
             latest = df.iloc[-1]
             
-            # SuperTrend columns: SUPERTd_period_multiplier, SUPERTl_period_multiplier, SUPERTs_period_multiplier
-            st_col = f'SUPERT_{self.period}_{self.multiplier}'
-            direction_col = f'SUPERTd_{self.period}_{self.multiplier}'
-            
-            if st_col in df.columns and direction_col in df.columns:
-                supertrend_value = latest[st_col]
-                direction = latest[direction_col]  # 1 = uptrend, -1 = downtrend
-                
-                return {
-                    'supertrend': supertrend_value,
-                    'direction': direction,
-                    'close': latest['close'],
-                    'timestamp': latest['timestamp']
-                }
-            else:
-                logger.error(f"SuperTrend columns not found in dataframe")
-                return None
+            return {
+                'supertrend': latest['supertrend'],
+                'direction': latest['direction'],
+                'close': latest['close'],
+                'timestamp': latest['timestamp']
+            }
                 
         except Exception as e:
             logger.error(f"Error calculating SuperTrend: {str(e)}")

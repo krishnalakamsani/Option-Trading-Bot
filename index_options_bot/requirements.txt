@@ -1,6 +1,5 @@
-dhanhq>=2.0.2
-pandas>=2.0.0
-numpy>=1.24.0
-pandas-ta>=0.3.14b0
-python-dotenv>=1.0.0
-pytz>=2024.1
+dhanhq==2.0.2
+pandas==2.3.3
+numpy==2.4.0
+python-dotenv==1.2.1
+pytz==2025.2
