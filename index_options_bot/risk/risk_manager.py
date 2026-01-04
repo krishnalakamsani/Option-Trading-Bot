@@ -1,44 +1,67 @@
-# index_option_bot/risk/risk_manager.py
+# index_options_bot/risk/risk_manager.py
 
-from datetime import datetime
-from .rules import *
+from datetime import datetime, timedelta
+
 
 class RiskManager:
-    def __init__(self, capital):
-        self.capital = capital
-        self.daily_pnl = 0
-        self.trades_today = 0
-        self.consecutive_losses = 0
-        self.last_loss_time = None
+    """
+    Enforces all capital & discipline rules.
+    AUTHORITATIVE component.
+    """
 
-    def can_trade(self):
-        if self.daily_pnl <= -MAX_LOSS_PER_DAY:
-            return False, "Daily loss limit hit"
+    def __init__(self, max_trades_per_day, max_loss_per_day, cooldown_minutes):
+        self.max_trades_per_day = max_trades_per_day
+        self.max_loss_per_day = max_loss_per_day
+        self.cooldown_minutes = cooldown_minutes
 
-        if self.trades_today >= MAX_TRADES_PER_DAY:
-            return False, "Max trades reached"
+        self.trades_taken = 0
+        self.realized_pnl = 0.0
+        self.last_sl_time = None
 
-        if self.consecutive_losses >= MAX_CONSECUTIVE_LOSSES:
-            return False, "Consecutive loss limit"
+    def can_take_trade(self):
+        """
+        Called BEFORE placing a trade
+        """
 
-        if self._cooldown_active():
-            return False, "Cooldown active"
+        # Max trades check
+        if self.trades_taken >= self.max_trades_per_day:
+            print("[RISK] Max trades per day reached")
+            return False
 
-        return True, "Allowed"
+        # Max loss check
+        if abs(self.realized_pnl) >= self.max_loss_per_day:
+            print("[RISK] Max loss per day reached")
+            return False
+
+        # Cool-off check
+        if self.last_sl_time:
+            next_allowed_time = self.last_sl_time + timedelta(
+                minutes=self.cooldown_minutes
+            )
+            if datetime.now() < next_allowed_time:
+                remaining = (next_allowed_time - datetime.now()).seconds
+                print(f"[RISK] Cool-off active ({remaining}s remaining)")
+                return False
+
+        return True
 
     def register_trade(self):
-        self.trades_today += 1
+        """
+        Called AFTER order entry
+        """
+        self.trades_taken += 1
+        print(f"[RISK] Trades taken today: {self.trades_taken}")
 
-    def update_pnl(self, pnl):
-        self.daily_pnl += pnl
-        if pnl < 0:
-            self.consecutive_losses += 1
-            self.last_loss_time = datetime.now()
-        else:
-            self.consecutive_losses = 0
+    def register_exit(self, pnl, exit_reason):
+        """
+        Called AFTER trade exit
+        """
+        self.realized_pnl += pnl
+        print(f"[RISK] Realized PnL: {self.realized_pnl}")
 
-    def _cooldown_active(self):
-        if not self.last_loss_time:
-            return False
-        minutes = (datetime.now() - self.last_loss_time).seconds / 60
-        return minutes < COOLDOWN_AFTER_LOSS_MIN
+        if exit_reason == "TRAILING_SL":
+            self.last_sl_time = datetime.now()
+            print(
+                f"[RISK] SL hit → Cool-off started for "
+                f"{self.cooldown_minutes} minutes"
+            )
